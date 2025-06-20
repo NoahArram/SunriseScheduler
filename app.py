@@ -6,6 +6,8 @@ from flask import Flask, request, jsonify
 from meross_iot.http_api import MerossHttpClient
 from meross_iot.manager import MerossManager
 from meross_iot.model.credentials import MerossCloudCreds
+from meross_iot.meross_factory import MerossManagerFactory
+# Also make sure this one is there
 
 # --- Configuration ---
 # These are loaded from environment variables.
@@ -56,18 +58,17 @@ async def sunrise_simulation_async():
     manager = None
     try:
         #
-        # --- THIS IS THE CORRECTED CODE BLOCK FOR AUTHENTICATION ---
+        # --- THIS IS THE CORRECTED CODE BLOCK FOR VERSION 0.4.9.0 ---
         #
-        # 1. Create a credentials object first, as required by your library version.
-        print("Creating credentials object...")
-        credentials = MerossCloudCreds(email=MEROSS_EMAIL, password=MEROSS_PASSWORD)
+        # For this library version, we must use the MerossManagerFactory to authenticate.
+        print("Authenticating with Meross cloud via factory...")
+        manager = await MerossManagerFactory.async_from_credentials(
+            email=MEROSS_EMAIL,
+            password=MEROSS_PASSWORD
+        )
+        print("Authentication successful.")
 
-        # 2. Initialize the manager using the 'meross_factory' helper, which is the
-        #    standard way to handle this pattern. It will create the http_client internally.
-        print("Initializing Meross Manager with credentials...")
-        manager = MerossManager(cloud_credentials=credentials)
-
-        # 3. Discover all devices.
+        # The manager is now fully initialized. We just need to discover devices.
         print("Discovering devices...")
         await manager.async_device_discovery()
         #
@@ -86,7 +87,6 @@ async def sunrise_simulation_async():
         
         for i in range(total_steps):
             progress = i / total_steps
-
             current_brightness = max(1, int(100 * progress))
             
             r = int(SUNRISE_START_COLOR[0] + (CANDLELIGHT_COLOR[0] - SUNRISE_START_COLOR[0]) * progress)
@@ -104,10 +104,12 @@ async def sunrise_simulation_async():
         print(f"FATAL ERROR during sunrise simulation: {e}")
     finally:
         if manager is not None:
+            # The manager handles closing the http_api_client
             manager.close()
 
         is_sunrise_running = False
         print("Background sunrise thread finished and cleaned up.")
+
 def run_sunrise_in_background():
     """
     Wrapper function to run the async simulation in a way that a new
