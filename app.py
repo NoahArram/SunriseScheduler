@@ -39,21 +39,36 @@ def token_required(f):
         return f(*args, **kwargs)
     return decorated
 
+# This is the corrected version of the function in app.py
+
 async def sunrise_simulation_async():
     """
-    The core asynchronous logic for the 30-minute sunrise simulation.
+    The core async logic for the 30-minute sunrise simulation.
     This function contains all the Meross-specific interactions.
     """
     global is_sunrise_running
     is_sunrise_running = True
     print("Starting sunrise simulation in background thread...")
 
-    http_api_client = None
+    manager = None
     try:
-        http_api_client = MerossHttpClient(email=MEROSS_EMAIL, password=MEROSS_PASSWORD)
-        manager = MerossManager(http_client=http_api_client)
-        await manager.async_init()
+        #
+        # --- THIS IS THE CORRECTED CODE BLOCK ---
+        #
+        # The MerossManager can handle the login and initialization in one step.
+        # This replaces the old, incorrect method.
+        print("Authenticating with Meross cloud...")
+        manager = await MerossManager.async_from_user_password(
+            email=MEROSS_EMAIL,
+            password=MEROSS_PASSWORD
+        )
+        print("Authentication successful. Discovering devices...")
+
+        # The manager is now initialized. We just need to discover devices.
         await manager.async_device_discovery()
+        #
+        # --- END OF CORRECTION ---
+        #
 
         device = manager.find_devices(device_name=LIGHT_NAME, online_status=True)
         if not device:
@@ -63,16 +78,14 @@ async def sunrise_simulation_async():
         light = device[0]
         await light.async_turn_on()
         
-        total_seconds = SUNRISE_DURATION_MINUTES * 60
+        # Using a smaller number of steps to reduce API calls
+        total_steps = SUNRISE_DURATION_MINUTES * 12 # One step every 5 seconds
         
-        # Loop for the duration of the sunrise
-        for i in range(0, total_seconds, 5): # Update every 5 seconds
-            progress = i / total_seconds
+        for i in range(total_steps):
+            progress = i / total_steps
 
-            # Brightness: smoothly from 1% to 100%
             current_brightness = max(1, int(100 * progress))
             
-            # Color: smoothly transition from start to end color
             r = int(SUNRISE_START_COLOR[0] + (CANDLELIGHT_COLOR[0] - SUNRISE_START_COLOR[0]) * progress)
             g = int(SUNRISE_START_COLOR[1] + (CANDLELIGHT_COLOR[1] - SUNRISE_START_COLOR[1]) * progress)
             b = int(SUNRISE_START_COLOR[2] + (CANDLELIGHT_COLOR[2] - SUNRISE_START_COLOR[2]) * progress)
@@ -81,18 +94,17 @@ async def sunrise_simulation_async():
             await light.async_set_light_color(rgb=(r, g, b), luminance=current_brightness)
             await asyncio.sleep(5)
 
-        # Set final state to ensure it ends perfectly
         print("Sunrise simulation complete. Setting final state.")
         await light.async_set_light_color(rgb=CANDLELIGHT_COLOR, luminance=100)
 
     except Exception as e:
         print(f"FATAL ERROR during sunrise simulation: {e}")
     finally:
-        if http_api_client:
-            http_api_client.close()
+        # The manager handles closing the http_api_client
+        if manager is not None:
+            await manager.async_close()
         is_sunrise_running = False
         print("Background sunrise thread finished and cleaned up.")
-
 def run_sunrise_in_background():
     """
     Wrapper function to run the async simulation in a way that a new
