@@ -5,6 +5,7 @@ from functools import wraps
 from flask import Flask, request, jsonify
 from meross_iot.http_api import MerossHttpClient
 from meross_iot.manager import MerossManager
+from meross_iot.model.credentials import MerossCloudCreds
 
 # --- Configuration ---
 # These are loaded from environment variables.
@@ -52,26 +53,22 @@ async def sunrise_simulation_async():
     is_sunrise_running = True
     print("Starting sunrise simulation in background thread...")
 
-    http_api_client = None
     manager = None
     try:
         #
         # --- THIS IS THE CORRECTED CODE BLOCK FOR AUTHENTICATION ---
         #
-        # 1. Create the client object first without credentials
-        http_api_client = MerossHttpClient()
+        # 1. Create a credentials object first, as required by your library version.
+        print("Creating credentials object...")
+        credentials = MerossCloudCreds(email=MEROSS_EMAIL, password=MEROSS_PASSWORD)
 
-        # 2. Call the explicit async_login() method to authenticate
-        print("Authenticating with Meross cloud...")
-        await http_api_client.async_login(email=MEROSS_EMAIL, password=MEROSS_PASSWORD)
-        print("Authentication successful.")
+        # 2. Initialize the manager using the 'meross_factory' helper, which is the
+        #    standard way to handle this pattern. It will create the http_client internally.
+        print("Initializing Meross Manager with credentials...")
+        manager = MerossManager(cloud_credentials=credentials)
 
-        # 3. Initialize the manager with the now-authenticated client
-        manager = MerossManager(http_client=http_api_client)
-
-        # 4. Initialize the manager and discover all devices
+        # 3. Discover all devices.
         print("Discovering devices...")
-        await manager.async_init()
         await manager.async_device_discovery()
         #
         # --- END OF CORRECTION ---
@@ -106,12 +103,8 @@ async def sunrise_simulation_async():
     except Exception as e:
         print(f"FATAL ERROR during sunrise simulation: {e}")
     finally:
-        # The manager will close the http_api_client it holds.
         if manager is not None:
             manager.close()
-        # If the manager failed to initialize, we might need to close the client manually
-        elif http_api_client is not None:
-            await http_api_client.async_logout()
 
         is_sunrise_running = False
         print("Background sunrise thread finished and cleaned up.")
