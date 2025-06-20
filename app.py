@@ -41,6 +41,8 @@ def token_required(f):
 
 # This is the corrected version of the function in app.py
 
+# This is the corrected version of the function in app.py
+
 async def sunrise_simulation_async():
     """
     The core async logic for the 30-minute sunrise simulation.
@@ -50,21 +52,26 @@ async def sunrise_simulation_async():
     is_sunrise_running = True
     print("Starting sunrise simulation in background thread...")
 
+    http_api_client = None
     manager = None
     try:
         #
-        # --- THIS IS THE CORRECTED CODE BLOCK ---
+        # --- THIS IS THE CORRECTED CODE BLOCK FOR AUTHENTICATION ---
         #
-        # The MerossManager can handle the login and initialization in one step.
-        # This replaces the old, incorrect method.
-        print("Authenticating with Meross cloud...")
-        manager = await MerossManager.async_from_user_password(
-            email=MEROSS_EMAIL,
-            password=MEROSS_PASSWORD
-        )
-        print("Authentication successful. Discovering devices...")
+        # 1. Create the client object first without credentials
+        http_api_client = MerossHttpClient()
 
-        # The manager is now initialized. We just need to discover devices.
+        # 2. Call the explicit async_login() method to authenticate
+        print("Authenticating with Meross cloud...")
+        await http_api_client.async_login(email=MEROSS_EMAIL, password=MEROSS_PASSWORD)
+        print("Authentication successful.")
+
+        # 3. Initialize the manager with the now-authenticated client
+        manager = MerossManager(http_client=http_api_client)
+
+        # 4. Initialize the manager and discover all devices
+        print("Discovering devices...")
+        await manager.async_init()
         await manager.async_device_discovery()
         #
         # --- END OF CORRECTION ---
@@ -78,7 +85,6 @@ async def sunrise_simulation_async():
         light = device[0]
         await light.async_turn_on()
         
-        # Using a smaller number of steps to reduce API calls
         total_steps = SUNRISE_DURATION_MINUTES * 12 # One step every 5 seconds
         
         for i in range(total_steps):
@@ -100,9 +106,13 @@ async def sunrise_simulation_async():
     except Exception as e:
         print(f"FATAL ERROR during sunrise simulation: {e}")
     finally:
-        # The manager handles closing the http_api_client
+        # The manager will close the http_api_client it holds.
         if manager is not None:
-            await manager.async_close()
+            manager.close()
+        # If the manager failed to initialize, we might need to close the client manually
+        elif http_api_client is not None:
+            await http_api_client.async_logout()
+
         is_sunrise_running = False
         print("Background sunrise thread finished and cleaned up.")
 def run_sunrise_in_background():
